@@ -1,12 +1,12 @@
 import subprocess
 import telegram
-import os
 
-# === Konfigurasi ===
-TELEGRAM_TOKEN = os.getenv("BOT_TOKEN")  # atau langsung isi 'token' jika tidak pakai .env
-CHANNEL_ID = os.getenv("CHANNEL_ID")     # contoh: '@namachannelkamu'
+# === Token dan Channel langsung ditulis di sini ===
+TELEGRAM_TOKEN = '7572191853:AAEU5FS92jtsLmfRykBPHAeZUKqi34uLn8k'
+CHANNEL_ID = '-1002594990660'  # pakai tanda minus (-) di depan kalau ID numerik
 
 def get_signal():
+    # Jalankan strategy.py untuk ambil sinyal
     result = subprocess.run(["python3", "strategy.py"], capture_output=True, text=True)
     return result.stdout
 
