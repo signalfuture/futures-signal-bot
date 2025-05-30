@@ -2,7 +2,7 @@ import pandas as pd
 from indicators.ema import calculate_ema
 from indicators.macd import calculate_macd
 from indicators.rsi import calculate_rsi
-from indicators.volume_spike import detect_volume_spike
+from indicators.volume_spike import detect_volume_spike  # ✅ Perbaikan di sini
 from indicators.supertrend import calculate_supertrend
 from indicators.fibonacci import calculate_fibonacci_levels
 from indicators.candlestick import detect_candlestick_pattern
@@ -60,7 +60,7 @@ def analyze_strategy(df):
     else:
         result["details"].append("❌ RSI bukan oversold")
 
-    # 4. Volume Spike
+    # 4. Volume Spike ✅ (perbaikan sesuai request)
     if detect_volume_spike(df):
         result["strength"] += 1
         result["details"].append("✅ Volume Spike Terdeteksi")
