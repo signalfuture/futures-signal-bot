@@ -1,100 +1,102 @@
-import requests
+import pandas as pd
 from indicators.ema import calculate_ema
 from indicators.macd import calculate_macd
 from indicators.rsi import calculate_rsi
 from indicators.volume_spike import detect_volume_spike
 from indicators.supertrend import calculate_supertrend
-from indicators.fibonacci import get_fibonacci_levels
+from indicators.fibonacci import calculate_fibonacci_levels
 from indicators.candlestick import detect_candlestick_pattern
+from binance.client import Client
+from config import BINANCE_API_KEY, BINANCE_API_SECRET
 
-# === Konfigurasi ===
-symbol = "BTCUSDT"
-interval = "1h"
-limit = 100
+client = Client(BINANCE_API_KEY, BINANCE_API_SECRET)
 
-def get_klines(symbol, interval, limit=100):
-    url = f"https://fapi.binance.com/fapi/v1/klines?symbol={symbol}&interval={interval}&limit={limit}"
-    res = requests.get(url).json()
-    o, h, l, c, v = [], [], [], [], []
-    for candle in res:
-        o.append(float(candle[1]))
-        h.append(float(candle[2]))
-        l.append(float(candle[3]))
-        c.append(float(candle[4]))
-        v.append(float(candle[5]))
-    return o, h, l, c, v
+def analyze_symbol(symbol):
+    try:
+        klines = client.get_klines(symbol=symbol, interval=Client.KLINE_INTERVAL_1HOUR, limit=100)
+        df = pd.DataFrame(klines, columns=[
+            'timestamp', 'open', 'high', 'low', 'close', 'volume',
+            'close_time', 'quote_asset_volume', 'number_of_trades',
+            'taker_buy_base_volume', 'taker_buy_quote_volume', 'ignore'
+        ])
+        df['open'] = df['open'].astype(float)
+        df['high'] = df['high'].astype(float)
+        df['low'] = df['low'].astype(float)
+        df['close'] = df['close'].astype(float)
+        df['volume'] = df['volume'].astype(float)
+        return analyze_strategy(df)
+    except Exception as e:
+        print(f"Error analyzing {symbol}: {e}")
+        return None
 
-def analyze():
-    open_prices, high_prices, low_prices, close_prices, volumes = get_klines(symbol, interval, limit)
-    signal_score = 0
-    signal_details = []
+def analyze_strategy(df):
+    result = {
+        "entry_signal": None,
+        "strength": 0,
+        "details": []
+    }
 
-    # EMA200
-    ema200 = calculate_ema(close_prices, 200)
-    if close_prices[-1] > ema200[-1]:
-        signal_score += 1
-        signal_details.append("✅ Above EMA200 (Uptrend)")
+    # 1. EMA 200
+    ema200 = calculate_ema(df['close'], 200)
+    if df['close'].iloc[-1] > ema200.iloc[-1]:
+        result["strength"] += 1
+        result["details"].append("✅ Harga di atas EMA200")
     else:
-        signal_details.append("❌ Below EMA200 (Downtrend)")
+        result["details"].append("❌ Harga di bawah EMA200")
 
-    # MACD
-    macd_hist = calculate_macd(close_prices)
-    if macd_hist[-1] > 0:
-        signal_score += 1
-        signal_details.append("✅ MACD Histogram > 0 (Bullish)")
+    # 2. MACD
+    macd_signal = calculate_macd(df)
+    if macd_signal == "buy":
+        result["strength"] += 1
+        result["details"].append("✅ MACD: Sinyal Buy")
     else:
-        signal_details.append("❌ MACD Histogram < 0 (Bearish)")
+        result["details"].append("❌ MACD: Bukan Sinyal Buy")
 
-    # RSI
-    rsi = calculate_rsi(close_prices)
-    if rsi[-1] < 30:
-        signal_score += 1
-        signal_details.append("✅ RSI Oversold (<30)")
-    elif rsi[-1] > 70:
-        signal_details.append("❌ RSI Overbought (>70)")
+    # 3. RSI
+    rsi = calculate_rsi(df['close'])
+    if rsi.iloc[-1] < 30:
+        result["strength"] += 1
+        result["details"].append("✅ RSI Oversold")
     else:
-        signal_details.append("✅ RSI Normal")
+        result["details"].append("❌ RSI bukan oversold")
 
-    # Volume Spike
-    if detect_volume_spike(volumes):
-        signal_score += 1
-        signal_details.append("✅ Volume Spike Detected")
+    # 4. Volume Spike
+    if detect_volume_spike(df):
+        result["strength"] += 1
+        result["details"].append("✅ Volume Spike Terdeteksi")
     else:
-        signal_details.append("❌ No Volume Spike")
+        result["details"].append("❌ Tidak ada Volume Spike")
 
-    # Supertrend
-    supertrend_data = calculate_supertrend(high_prices, low_prices, close_prices)
-    if supertrend_data and supertrend_data[-1][1] == "up":
-        signal_score += 1
-        signal_details.append("✅ Supertrend Up")
+    # 5. Supertrend
+    supertrend_signal = calculate_supertrend(df)
+    if supertrend_signal == "buy":
+        result["strength"] += 1
+        result["details"].append("✅ Supertrend: Buy")
     else:
-        signal_details.append("❌ Supertrend Down")
+        result["details"].append("❌ Supertrend: Bukan Buy")
 
-    # Fibonacci
-    levels = get_fibonacci_levels(max(high_prices), min(low_prices))
-    price_now = close_prices[-1]
-    near_fibo = any(abs(price_now - levels[level]) / price_now < 0.01 for level in ['50.0%', '61.8%'])
-    if near_fibo:
-        signal_score += 1
-        signal_details.append("✅ Near Fibonacci Level (0.5 / 0.618)")
+    # 6. Fibonacci
+    fib_signal = calculate_fibonacci_levels(df)
+    if fib_signal == "support":
+        result["strength"] += 1
+        result["details"].append("✅ Dekat Support Fibonacci")
     else:
-        signal_details.append("❌ Not near Fibonacci key levels")
+        result["details"].append("❌ Tidak di support Fibonacci")
 
-    # Candlestick
-    patterns = detect_candlestick_pattern(open_prices, high_prices, low_prices, close_prices)
-    if patterns:
-        signal_score += 1
-        signal_details.append(f"✅ Candlestick Pattern: {', '.join(patterns)}")
+    # 7. Candlestick Pattern
+    pattern = detect_candlestick_pattern(df)
+    if pattern == "bullish":
+        result["strength"] += 1
+        result["details"].append("✅ Pola Candlestick Bullish")
     else:
-        signal_details.append("❌ No Candlestick Pattern")
+        result["details"].append("❌ Tidak ada pola bullish")
 
-    # Final Signal
-    signal = "BUY" if signal_score >= 5 else "NO SIGNAL"
-    strength = f"{signal_score}/7 indikator aktif"
-    return signal, strength, signal_details
+    # Kesimpulan Entry
+    if result["strength"] >= 5:
+        result["entry_signal"] = "STRONG BUY"
+    elif result["strength"] >= 3:
+        result["entry_signal"] = "WEAK BUY"
+    else:
+        result["entry_signal"] = "NO ENTRY"
 
-if __name__ == "__main__":
-    signal, strength, details = analyze()
-    print(f"\n📊 Sinyal: {signal} ({strength})")
-    for d in details:
-        print("•", d)
+    return result
